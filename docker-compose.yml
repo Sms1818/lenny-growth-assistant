@@ -13,7 +13,68 @@ services:
       test: ["CMD-SHELL", "pg_isready -U lenny -d lenny_growth"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      APP_NAME: Lenny Growth Assistant
+      ENVIRONMENT: development
+
+      DATABASE_URL: postgresql+asyncpg://lenny:lenny_dev@postgres:5432/lenny_growth
+
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: llama3.2:3b
+
+      EMBEDDING_MODEL: nomic-embed-text
+      EMBEDDING_DIMENSIONS: 768
+
+      AGENT_PROVIDER: ollama
+      AGENT_MODEL: llama3.2:3b
+      AGENT_EXECUTABLE: pi
+      AGENT_TIMEOUT_SECONDS: 120
+
+      ARTIFACT_MODEL: qwen3:4b-instruct
+      ARTIFACT_TIMEOUT_SECONDS: 300
+
+      CLOUD_PROVIDER: openai
+      CLOUD_MODEL: gpt-5.4-mini
+      CLOUD_FALLBACK_ENABLED: ${CLOUD_FALLBACK_ENABLED:-false}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ingest:
+    build:
+      context: ./backend
+    entrypoint: ["python", "scripts/ingest_knowledge.py"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://lenny:lenny_dev@postgres:5432/lenny_growth
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      EMBEDDING_MODEL: nomic-embed-text
+      EMBEDDING_DIMENSIONS: 768
+    volumes:
+      - ./data:/data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - tools
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:

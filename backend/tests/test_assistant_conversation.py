@@ -258,3 +258,38 @@ def test_standalone_questions_are_not_overblocked(question):
         question,
         [],
     )
+
+
+def test_build_session_title_uses_first_message():
+    from app.api.routes.messages import build_session_title
+
+    assert build_session_title(
+        "How did Duolingo reignite its user growth?"
+    ) == "How did Duolingo reignite its user growth?"
+
+
+def test_build_session_title_collapses_whitespace():
+    from app.api.routes.messages import build_session_title
+
+    assert build_session_title(
+        "  How did   Duolingo\nreignite growth?  "
+    ) == "How did Duolingo reignite growth?"
+
+
+def test_build_session_title_removes_artifact_prefix():
+    from app.api.routes.messages import build_session_title
+
+    assert build_session_title(
+        "Create html artifact: Build a retention strategy brief"
+    ) == "Build a retention strategy brief"
+
+
+def test_build_session_title_truncates_long_title():
+    from app.api.routes.messages import build_session_title
+
+    title = build_session_title(
+        "A" * 100,
+    )
+
+    assert len(title) == 60
+    assert title.endswith("…")

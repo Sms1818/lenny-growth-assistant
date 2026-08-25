@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import re
 
 from app.assistant.grounding import (
+    clean_grounding_issues,
     GroundingIssue,
     remove_unsupported_acronym_expansions,
     validate_grounding,
@@ -9,6 +10,7 @@ from app.assistant.grounding import (
 from app.assistant.agent import PiAgentClient
 from app.core.config import get_settings
 from app.knowledge.retrieval import RetrievedChunk, search_knowledge
+from app.core.logger import log_event
 
 
 SYSTEM_PROMPT = """You are Lenny Growth Assistant.
@@ -120,12 +122,37 @@ def has_unresolved_reference(
     )
 
 
+CONTEXT_REFERENCE_PATTERNS = (
+    r"\b(it|they|them|their|he|him|his|she|her)\b",
+    r"\b(this|that|these|those)\b",
+    r"\b(?:the|our)\b(?:\s+[a-z0-9'-]+){0,3}\s+(?:discussion|conversation|answer|topic|idea|analysis)\b",
+    r"\b(previous|earlier|above)\b",
+)
+
+
+def needs_conversation_context(text: str) -> bool:
+    normalized = text.strip().lower()
+
+    return any(
+        re.search(pattern, normalized)
+        for pattern in CONTEXT_REFERENCE_PATTERNS
+    )
+
+
 def build_retrieval_query(
     question: str,
     conversation_history: list[ConversationTurn],
     *,
     max_user_turns: int = 3,
+    include_history: bool = True,
 ) -> str:
+    if (
+        not include_history
+        or max_user_turns < 1
+        or not conversation_history
+    ):
+        return question
+
     previous_user_turns = [
         turn.content.strip()
         for turn in conversation_history
@@ -244,6 +271,11 @@ async def answer_question(
         limit=retrieval_limit,
     )
 
+    log_event(
+        "retrieval_complete",
+        chunks_found=len(chunks),
+        query_length=len(retrieval_query),
+    )
     if not chunks:
         return AssistantAnswer(
             answer=(
@@ -314,18 +346,15 @@ ANSWER
     )
     answer = agent_response.text
 
-    issues = validate_grounding(answer, context)
+    answer, issues = clean_grounding_issues(
+        answer,
+        context,
+    )
     grounding_retry_used = False
 
     if issues:
-        answer = remove_unsupported_acronym_expansions(
-            answer,
-            issues,
-        )
-        issues = validate_grounding(answer, context)
-
-    if issues:
         grounding_retry_used = True
+        log_event("grounding_retry_used", issues=[i.issue_type for i in issues])
 
         correction_prompt = build_correction_prompt(
             question=question,
@@ -341,16 +370,13 @@ ANSWER
         )
         answer = agent_response.text
 
-        issues = validate_grounding(answer, context)
-
-        if issues:
-            answer = remove_unsupported_acronym_expansions(
-                answer,
-                issues,
-            )
-            issues = validate_grounding(answer, context)
+        answer, issues = clean_grounding_issues(
+            answer,
+            context,
+        )
 
     if issues:
+        log_event("grounding_failed", issues=[i.issue_type for i in issues])
         answer = (
             "I found relevant material in the Lenny knowledge base, "
             "but I couldn't produce an answer that passed grounding "

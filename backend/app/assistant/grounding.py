@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from html.parser import HTMLParser
 
 
 ACRONYM_THEN_EXPANSION_PATTERN = re.compile(
@@ -222,6 +223,59 @@ def remove_unsupported_quotes(
     return cleaned
 
 
+class _VisibleTextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self._parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        if tag in {"script", "style", "noscript"}:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style", "noscript"} and self._skip_depth:
+            self._skip_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            return
+
+        text = data.strip()
+
+        if text:
+            self._parts.append(text)
+
+    def get_text(self) -> str:
+        return "\n".join(self._parts)
+
+
+def extract_visible_text_from_html(html: str) -> str:
+    parser = _VisibleTextExtractor()
+    parser.feed(html)
+    parser.close()
+    return parser.get_text()
+
+
+def validate_html_grounding(
+    html: str,
+    context: str,
+) -> list[GroundingIssue]:
+    visible_text = extract_visible_text_from_html(html)
+
+    if not visible_text.strip():
+        return []
+
+    return validate_grounding(
+        visible_text,
+        context,
+    )
+
+
 def clean_grounding_issues(
     answer: str,
     context: str,
@@ -257,6 +311,117 @@ def clean_grounding_issues(
     return (
         cleaned,
         validate_grounding(
+            cleaned,
+            context,
+        ),
+    )
+
+
+class _HtmlGroundingCleaner(HTMLParser):
+    def __init__(
+        self,
+        issues: list[GroundingIssue],
+    ) -> None:
+        super().__init__(convert_charrefs=False)
+        self._parts: list[str] = []
+        self._issues = issues
+        self._skip_depth = 0
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        raw = self.get_starttag_text()
+        if raw:
+            self._parts.append(raw)
+
+        if tag in {"script", "style", "noscript"}:
+            self._skip_depth += 1
+
+    def handle_startendtag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        raw = self.get_starttag_text()
+        if raw:
+            self._parts.append(raw)
+
+    def handle_endtag(self, tag: str) -> None:
+        self._parts.append(f"</{tag}>")
+
+        if (
+            tag in {"script", "style", "noscript"}
+            and self._skip_depth
+        ):
+            self._skip_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            self._parts.append(data)
+            return
+
+        cleaned = remove_unsupported_acronym_expansions(
+            data,
+            self._issues,
+        )
+        cleaned = remove_unsupported_quotes(
+            cleaned,
+            self._issues,
+        )
+        self._parts.append(cleaned)
+
+    def handle_entityref(self, name: str) -> None:
+        self._parts.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        self._parts.append(f"&#{name};")
+
+    def handle_comment(self, data: str) -> None:
+        self._parts.append(f"<!--{data}-->")
+
+    def handle_decl(self, decl: str) -> None:
+        self._parts.append(f"<!{decl}>")
+
+    def handle_pi(self, data: str) -> None:
+        self._parts.append(f"<?{data}>")
+
+    def get_html(self) -> str:
+        return "".join(self._parts)
+
+
+def clean_html_grounding_issues(
+    html: str,
+    context: str,
+    *,
+    max_passes: int = 3,
+) -> tuple[str, list[GroundingIssue]]:
+    cleaned = html
+
+    for _ in range(max_passes):
+        issues = validate_html_grounding(
+            cleaned,
+            context,
+        )
+
+        if not issues:
+            return cleaned, []
+
+        parser = _HtmlGroundingCleaner(issues)
+        parser.feed(cleaned)
+        parser.close()
+
+        updated = parser.get_html()
+
+        if updated == cleaned:
+            return cleaned, issues
+
+        cleaned = updated
+
+    return (
+        cleaned,
+        validate_html_grounding(
             cleaned,
             context,
         ),

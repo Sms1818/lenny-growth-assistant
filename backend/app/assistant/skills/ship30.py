@@ -12,6 +12,7 @@ from app.assistant.service import (
     build_context,
     build_conversation_context,
     build_retrieval_query,
+    needs_conversation_context,
 )
 from app.core.config import get_settings
 from app.knowledge.retrieval import search_knowledge
@@ -163,7 +164,29 @@ def create_agent_client() -> PiAgentClient:
 
     return PiAgentClient(
         provider=settings.agent_provider,
-        model=settings.agent_model,
+        model=settings.artifact_model,
+        executable=settings.agent_executable,
+        timeout=settings.artifact_timeout_seconds,
+        environment=environment,
+    )
+
+
+def create_cloud_agent_client() -> PiAgentClient:
+    settings = get_settings()
+
+    environment: dict[str, str] = {}
+
+    if (
+        settings.cloud_provider == "openai"
+        and settings.openai_api_key
+    ):
+        environment["OPENAI_API_KEY"] = (
+            settings.openai_api_key
+        )
+
+    return PiAgentClient(
+        provider=settings.cloud_provider,
+        model=settings.cloud_model,
         executable=settings.agent_executable,
         timeout=settings.agent_timeout_seconds,
         environment=environment,
@@ -187,6 +210,9 @@ async def generate_ship30_essay(
     retrieval_query = build_retrieval_query(
         topic,
         history,
+        include_history=needs_conversation_context(
+            topic
+        ),
     )
 
     chunks = await search_knowledge(

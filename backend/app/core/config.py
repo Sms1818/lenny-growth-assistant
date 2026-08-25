@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     agent_executable: str = "pi"
     agent_timeout_seconds: float = 120.0
 
+    artifact_model: str = "qwen3:4b-instruct"
+    artifact_timeout_seconds: float = 300.0
+
     cloud_provider: str = "openai"
     cloud_model: str = "gpt-5.4-mini"
     cloud_fallback_enabled: bool = False

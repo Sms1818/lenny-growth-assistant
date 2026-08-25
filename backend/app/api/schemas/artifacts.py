@@ -7,6 +7,7 @@ from app.api.schemas.messages import (
     MessageResponse,
     SourceResponse,
 )
+from app.api.schemas.sessions import ProviderMode
 
 
 class ArtifactCreateRequest(BaseModel):
@@ -17,6 +18,7 @@ class ArtifactCreateRequest(BaseModel):
         min_length=1,
         max_length=4000,
     )
+    provider_mode: ProviderMode | None = None
 
 
 class Ship30ArtifactRequest(BaseModel):
@@ -24,6 +26,7 @@ class Ship30ArtifactRequest(BaseModel):
         min_length=1,
         max_length=2000,
     )
+    provider_mode: ProviderMode | None = None
 
 
 class ArtifactResponse(BaseModel):
@@ -42,3 +45,4 @@ class CreateArtifactResponse(BaseModel):
     assistant_message: MessageResponse
     artifact: ArtifactResponse
     sources: list[SourceResponse]
+    provider_mode: ProviderMode | None = None

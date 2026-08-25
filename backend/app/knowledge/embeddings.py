@@ -1,8 +1,19 @@
 from collections.abc import Sequence
 
+
 import httpx
+from app.core.logger import log_event
+
 
 from app.core.config import get_settings
+
+
+class EmbeddingServiceUnavailableError(RuntimeError):
+    """Raised when the configured embedding service cannot be reached."""
+
+
+class EmbeddingServiceError(RuntimeError):
+    """Raised when the embedding service returns an unsuccessful response."""
 
 
 class OllamaEmbeddingClient:
@@ -17,17 +28,34 @@ class OllamaEmbeddingClient:
         if not texts:
             return []
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{self.base_url}/api/embed",
-                json={
-                    "model": self.model,
-                    "input": list(texts),
-                },
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/api/embed",
+                    json={
+                        "model": self.model,
+                        "input": list(texts),
+                    },
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except httpx.RequestError as exc:
+            log_event(
+                "embedding_service_unavailable",
+                error_type=exc.__class__.__name__,
             )
-
-            response.raise_for_status()
-            payload = response.json()
+            raise EmbeddingServiceUnavailableError(
+                "The local embedding service is unavailable."
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            log_event(
+                "embedding_service_failed",
+                error_type=exc.__class__.__name__,
+                status_code=exc.response.status_code,
+            )
+            raise EmbeddingServiceError(
+                "The embedding service returned an error."
+            ) from exc
 
         embeddings = payload.get("embeddings")
 

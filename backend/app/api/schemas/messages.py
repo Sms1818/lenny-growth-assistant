@@ -1,7 +1,10 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.api.schemas.sessions import ProviderMode
 
 
 class MessageCreateRequest(BaseModel):
@@ -9,6 +12,7 @@ class MessageCreateRequest(BaseModel):
         min_length=1,
         max_length=10000,
     )
+    provider_mode: ProviderMode | None = None
 
 
 class SourceResponse(BaseModel):
@@ -36,7 +40,17 @@ class MessageResponse(BaseModel):
     created_at: datetime
 
 
+class MessageWithSourcesResponse(MessageResponse):
+    sources: list[SourceResponse] = Field(default_factory=list)
+    artifact_id: uuid.UUID | None = None
+
+
+class SessionMessagesResponse(BaseModel):
+    messages: list[MessageWithSourcesResponse]
+
+
 class SendMessageResponse(BaseModel):
     user_message: MessageResponse
     assistant_message: MessageResponse
     sources: list[SourceResponse]
+    provider_mode: ProviderMode | None = None

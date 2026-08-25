@@ -44,6 +44,33 @@ def build_lexical_query(query: str) -> str:
 
 ENTITY_MATCH_BOOST = 0.01
 
+GENERIC_METADATA_TERMS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "at",
+    "by",
+    "for",
+    "from",
+    "how",
+    "in",
+    "into",
+    "is",
+    "of",
+    "on",
+    "product",
+    "products",
+    "the",
+    "to",
+    "user",
+    "users",
+    "with",
+    "growth",
+    "retention",
+    "podcast",
+}
+
 
 def normalize_metadata_text(value: str) -> str:
     return " ".join(
@@ -61,6 +88,7 @@ def metadata_match_boost(
     guest: str | None,
 ) -> float:
     normalized_query = normalize_metadata_text(query)
+    query_tokens = set(normalized_query.split())
 
     if guest:
         guest_tokens = [
@@ -75,11 +103,19 @@ def metadata_match_boost(
             if guest_phrase in normalized_query:
                 return ENTITY_MATCH_BOOST
 
-    normalized_title = normalize_metadata_text(title)
+    title_tokens = [
+        token
+        for token in normalize_metadata_text(title).split()
+        if (
+            token not in GENERIC_METADATA_TERMS
+            and not token.isdigit()
+            and len(token) >= 4
+        )
+    ]
 
-    if (
-        len(normalized_title.split()) >= 2
-        and normalized_title in normalized_query
+    if any(
+        token in query_tokens
+        for token in title_tokens
     ):
         return ENTITY_MATCH_BOOST
 

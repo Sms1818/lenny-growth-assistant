@@ -5,6 +5,8 @@ from app.assistant.agent import PiAgentClient
 from app.assistant.grounding import (
     GroundingIssue,
     clean_grounding_issues,
+    clean_html_grounding_issues,
+    validate_html_grounding,
 )
 from app.assistant.service import (
     AnswerSource,
@@ -12,6 +14,7 @@ from app.assistant.service import (
     build_context,
     build_conversation_context,
     build_retrieval_query,
+    needs_conversation_context,
 )
 from app.core.config import get_settings
 from app.knowledge.retrieval import search_knowledge
@@ -153,9 +156,31 @@ def create_agent_client() -> PiAgentClient:
 
     return PiAgentClient(
         provider=settings.agent_provider,
-        model=settings.agent_model,
+        model=settings.artifact_model,
         executable=settings.agent_executable,
-        timeout=settings.agent_timeout_seconds,
+        timeout=settings.artifact_timeout_seconds,
+        environment=environment,
+    )
+
+
+def create_cloud_agent_client() -> PiAgentClient:
+    settings = get_settings()
+
+    environment: dict[str, str] = {}
+
+    if (
+        settings.cloud_provider == "openai"
+        and settings.openai_api_key
+    ):
+        environment["OPENAI_API_KEY"] = (
+            settings.openai_api_key
+        )
+
+    return PiAgentClient(
+        provider=settings.cloud_provider,
+        model=settings.cloud_model,
+        executable=settings.agent_executable,
+        timeout=settings.artifact_timeout_seconds,
         environment=environment,
     )
 
@@ -174,6 +199,7 @@ Do not wrap the result in a Markdown code fence.
         output_rules = """
 Output one complete HTML document only.
 Include <html>, <head>, <style>, and <body>.
+Keep the document concise and focused; avoid excessive decorative markup.
 Use embedded CSS only.
 Do not use JavaScript.
 Do not use script, iframe, object, or embed elements.
@@ -233,7 +259,7 @@ async def generate_artifact(
     *,
     artifact_type: str,
     conversation_history: list[ConversationTurn] | None = None,
-    retrieval_limit: int = 8,
+    retrieval_limit: int = 5,
     agent_client: PiAgentClient | None = None,
 ) -> GeneratedArtifact:
     instruction = instruction.strip()
@@ -252,6 +278,9 @@ async def generate_artifact(
     retrieval_query = build_retrieval_query(
         instruction,
         history,
+        include_history=needs_conversation_context(
+            instruction
+        ),
     )
 
     chunks = await search_knowledge(
@@ -292,9 +321,16 @@ async def generate_artifact(
         ),
     )
 
-    content, grounding_issues = clean_grounding_issues(
-        response.text,
-        source_context,
+    content, grounding_issues = (
+        clean_grounding_issues(
+            response.text,
+            source_context,
+        )
+        if artifact_type == "markdown"
+        else clean_html_grounding_issues(
+            response.text,
+            source_context,
+        )
     )
 
     if artifact_type == "markdown":

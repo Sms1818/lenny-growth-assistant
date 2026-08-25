@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.routes.messages import get_recent_history
+from app.api.routes.messages import get_recent_history, touch_session
 from app.api.schemas.artifacts import (
     ArtifactCreateRequest,
     ArtifactResponse,
@@ -12,6 +12,12 @@ from app.api.schemas.artifacts import (
     Ship30ArtifactRequest,
 )
 from app.api.schemas.messages import SourceResponse
+from app.api.schemas.sessions import ProviderMode
+from app.api.services.generation import (
+    resolve_artifact_provider_plan,
+    run_with_provider_plan,
+)
+from app.assistant.provider import normalize_provider_mode
 from app.assistant.skills.artifacts import (
     extract_markdown_title,
     generate_artifact,
@@ -20,11 +26,14 @@ from app.assistant.skills.ship30 import (
     generate_ship30_essay,
     validate_ship30_structure,
 )
+from app.core.config import get_settings
 from app.db.dependencies import get_db_session
 from app.db.models import Artifact, Message, Session
 
 
 router = APIRouter(tags=["artifacts"])
+
+UNPROCESSABLE = status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 @router.post(
@@ -45,6 +54,15 @@ async def create_artifact(
             detail="Session not found",
         )
 
+    settings = get_settings()
+    provider_mode = normalize_provider_mode(
+        request.provider_mode,
+    )
+    plan = resolve_artifact_provider_plan(
+        provider_mode,
+        settings,
+    )
+
     history = await get_recent_history(
         db,
         session_id,
@@ -59,11 +77,21 @@ async def create_artifact(
         ).where(Message.session_id == session_id)
     )
 
+    # End the read transaction before long-running model generation.
+    # This avoids holding a database connection across local/cloud inference.
+    await db.rollback()
+
     try:
-        result = await generate_artifact(
-            request.instruction,
-            artifact_type=request.artifact_type,
-            conversation_history=history,
+        result = await run_with_provider_plan(
+            settings=settings,
+            plan=plan,
+            timeout=settings.artifact_timeout_seconds,
+            local_call=lambda agent_client: generate_artifact(
+                request.instruction,
+                artifact_type=request.artifact_type,
+                conversation_history=history,
+                agent_client=agent_client,
+            ),
         )
 
         if (
@@ -71,7 +99,7 @@ async def create_artifact(
             or result.validation_issues
         ):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=UNPROCESSABLE,
                 detail={
                     "code": "artifact_generation_failed",
                     "message": (
@@ -132,7 +160,7 @@ async def create_artifact(
         )
 
         db.add(artifact)
-
+        await touch_session(db, session)
         await db.commit()
 
         await db.refresh(user_message)
@@ -162,6 +190,7 @@ async def create_artifact(
             )
             for source in result.sources
         ],
+        provider_mode=provider_mode,
     )
 
 
@@ -183,6 +212,15 @@ async def create_ship30_artifact(
             detail="Session not found",
         )
 
+    settings = get_settings()
+    provider_mode = normalize_provider_mode(
+        request.provider_mode,
+    )
+    plan = resolve_artifact_provider_plan(
+        provider_mode,
+        settings,
+    )
+
     history = await get_recent_history(
         db,
         session_id,
@@ -197,10 +235,20 @@ async def create_ship30_artifact(
         ).where(Message.session_id == session_id)
     )
 
+    # End the read transaction before long-running model generation.
+    # This avoids holding a database connection across local/cloud inference.
+    await db.rollback()
+
     try:
-        result = await generate_ship30_essay(
-            request.topic,
-            conversation_history=history,
+        result = await run_with_provider_plan(
+            settings=settings,
+            plan=plan,
+            timeout=settings.artifact_timeout_seconds,
+            local_call=lambda agent_client: generate_ship30_essay(
+                request.topic,
+                conversation_history=history,
+                agent_client=agent_client,
+            ),
         )
 
         structure_issues = validate_ship30_structure(
@@ -209,7 +257,7 @@ async def create_ship30_artifact(
 
         if result.grounding_issues or structure_issues:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=UNPROCESSABLE,
                 detail={
                     "code": "artifact_generation_failed",
                     "message": (
@@ -269,7 +317,7 @@ async def create_ship30_artifact(
         )
 
         db.add(artifact)
-
+        await touch_session(db, session)
         await db.commit()
 
         await db.refresh(user_message)
@@ -299,6 +347,7 @@ async def create_ship30_artifact(
             )
             for source in result.sources
         ],
+        provider_mode=provider_mode,
     )
 
 

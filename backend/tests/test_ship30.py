@@ -137,3 +137,50 @@ async def test_ship30_rejects_empty_topic():
         match="topic cannot be empty",
     ):
         await generate_ship30_essay("   ")
+
+
+@pytest.mark.asyncio
+async def test_ship30_self_contained_topic_excludes_history_from_retrieval(
+    monkeypatch,
+):
+    captured_queries = []
+
+    async def fake_search(
+        query,
+        *,
+        limit=8,
+        embedding_client=None,
+    ):
+        captured_queries.append(query)
+        return [make_chunk()]
+
+    monkeypatch.setattr(
+        "app.assistant.skills.ship30.search_knowledge",
+        fake_search,
+    )
+
+    agent = FakeShip30Agent()
+
+    topic = (
+        "Create a Ship 30 essay about how Duolingo "
+        "reignited user growth."
+    )
+
+    await generate_ship30_essay(
+        topic,
+        conversation_history=[
+            ConversationTurn(
+                role="user",
+                content="Tell me about Anthropic growth.",
+            ),
+            ConversationTurn(
+                role="assistant",
+                content="Previous Anthropic discussion.",
+            ),
+        ],
+        agent_client=agent,
+    )
+
+    assert captured_queries == [topic]
+    assert "Anthropic" not in captured_queries[0]
+

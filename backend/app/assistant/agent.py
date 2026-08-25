@@ -158,3 +158,108 @@ class PiAgentClient:
             input_tokens=usage.get("input"),
             output_tokens=usage.get("output"),
         )
+
+
+class OllamaAgentClient:
+    def __init__(
+        self,
+        *,
+        model: str,
+        base_url: str,
+        timeout: float = 120.0,
+        max_output_tokens: int | None = None,
+    ) -> None:
+        self.provider = "ollama"
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+        self.max_output_tokens = max_output_tokens
+
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+    ) -> AgentResponse:
+        import httpx
+
+        prompt = prompt.strip()
+
+        if not prompt:
+            raise ValueError("prompt cannot be empty")
+
+        messages = []
+
+        if system:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": system,
+                }
+            )
+
+        messages.append(
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        )
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout,
+            ) as client:
+                response = await client.post(
+                    f"{self.base_url}/v1/chat/completions",
+                    headers={
+                        "Authorization": "Bearer ollama",
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": messages,
+                        "stream": False,
+                        **(
+                            {
+                                "max_tokens": self.max_output_tokens,
+                            }
+                            if self.max_output_tokens is not None
+                            else {}
+                        ),
+                    },
+                )
+                response.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise TimeoutError(
+                f"Ollama timed out after {self.timeout:.0f}s"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise RuntimeError(
+                f"Ollama generation failed: {exc}"
+            ) from exc
+
+        payload = response.json()
+
+        choices = payload.get("choices") or []
+
+        if not choices:
+            raise ValueError(
+                "Ollama response contained no choices"
+            )
+
+        message = choices[0].get("message") or {}
+        text = str(message.get("content") or "").strip()
+
+        if not text:
+            raise ValueError(
+                "Ollama response contained no assistant text"
+            )
+
+        usage = payload.get("usage") or {}
+
+        return AgentResponse(
+            text=text,
+            provider="ollama",
+            model=str(payload.get("model") or self.model),
+            input_tokens=usage.get("prompt_tokens"),
+            output_tokens=usage.get("completion_tokens"),
+        )
