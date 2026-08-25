@@ -100,7 +100,15 @@ Each assistant message persists `source_chunk_ids` (a JSONB array) in the databa
 
 ## Knowledge Base and Ingestion
 
-The corpus is Lenny's Podcast transcripts and Newsletter articles in Markdown format with YAML front matter. Source files live under `data/podcasts/` and `data/newsletters/`. These directories are not gitignored (`.gitignore` only excludes `data/raw/` and `data/processed/`); they are simply empty in this repository and must be populated before running ingestion.
+The corpus is Lenny's Podcast transcripts and Newsletter articles in Markdown format with YAML front matter. Source files live under `data/podcasts/` and `data/newsletters/`.
+
+This repository intentionally does not redistribute Lenny's raw content. For a fresh local setup, use the public Lenny's Data starter pack:
+
+    git clone https://github.com/LennysNewsletter/lennys-newsletterpodcastdata.git /tmp/lennys-data
+    cp -R /tmp/lennys-data/podcasts/. data/podcasts/
+    cp -R /tmp/lennys-data/newsletters/. data/newsletters/
+
+The public starter pack contains both podcast transcripts and newsletter posts. If you already have another compatible Lenny corpus, place its Markdown files in the same two directories instead.
 
 **Front matter fields used:**
 
@@ -265,7 +273,7 @@ The session title is set automatically from the first message content (stripped 
 
 - Docker and Docker Compose
 - [Ollama](https://ollama.ai) installed and running on the host machine
-- The Lenny corpus files in `data/podcasts/` and `data/newsletters/` (not populated in this repository; see Knowledge Base and Ingestion)
+- The Lenny corpus files in `data/podcasts/` and `data/newsletters/` (use the public starter-pack commands in [Knowledge Base and Ingestion](#knowledge-base-and-ingestion))
 
 ### 1. Pull the required Ollama models
 
