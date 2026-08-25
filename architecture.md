@@ -14,32 +14,19 @@ The Lenny Growth Assistant follows a three-tier architecture orchestrated via Do
 
 ```mermaid
 flowchart TD
-    Browser[Browser (React / Vite)]
-    FastAPI[FastAPI Backend]
-    Postgres[(PostgreSQL + pgvector)]
+    Browser[React Vite Frontend]
+    API[FastAPI Backend]
+    DB[(PostgreSQL pgvector)]
     Ollama[Ollama Local]
-    Pi[Pi Coding Agent CLI]
-    OpenAI[OpenAI Cloud]
+    Pi[Pi Coding Agent]
+    Cloud[OpenAI Cloud]
 
-    Browser -- "HTTP (JSON)" --> FastAPI
-    FastAPI -- "SQLAlchemy / asyncpg" --> Postgres
-    FastAPI -- "HTTP (/api/embed)" --> Ollama
-    FastAPI -- "HTTP (/v1/chat/completions)" --> Ollama
-    FastAPI -- "Subprocess (JSONL)" --> Pi
-    Pi -- "HTTP API" --> OpenAI
-
-    subgraph "Data Persistence"
-      Postgres
-    end
-
-    subgraph "Retrieval & Embeddings (Always Local)"
-      Ollama
-    end
-
-    subgraph "Cloud Generation"
-      Pi
-      OpenAI
-    end
+    Browser -->|HTTP JSON| API
+    API -->|SQLAlchemy asyncpg| DB
+    API -->|Embeddings| Ollama
+    API -->|Local generation| Ollama
+    API -->|Cloud generation| Pi
+    Pi -->|Provider API| Cloud
 ```
 
 ## Core Request Flow (Grounded RAG)
@@ -50,30 +37,28 @@ When a user submits a question, the system executes a grounded generation loop t
 sequenceDiagram
     participant User
     participant API as FastAPI
-    participant Embed as Ollama (nomic-embed-text)
+    participant Embed as Ollama Embeddings
     participant DB as pgvector
-    participant LLM as Agent Client (Ollama/Pi)
-    participant Grounding as Grounding Validator
+    participant LLM as Agent Client
+    participant Validator as Grounding Validator
 
-    User->>API: POST /messages (query, mode)
-    API->>Embed: Embed query + recent context
-    Embed-->>API: 768d vector
-    API->>DB: Hybrid search (Semantic + Lexical)
-    DB-->>API: Top candidate chunks
-    API->>API: RRF & Metadata Reranking (top 5)
-    API->>LLM: Generate with context & history
-    LLM-->>API: Draft answer
-    API->>Grounding: Validate quotes & acronyms
-    alt Issues found
-        Grounding->>Grounding: Auto-correct (strip/remove)
-        alt Issues remain
-            API->>LLM: Correction prompt
-            LLM-->>API: Revised answer
-            API->>Grounding: Validate revised answer
-        end
+    User->>API: Send message
+    API->>Embed: Embed retrieval query
+    Embed-->>API: Query vector
+    API->>DB: Run hybrid retrieval
+    DB-->>API: Return candidate chunks
+    API->>API: Rank candidates
+    API->>LLM: Generate grounded answer
+    LLM-->>API: Return draft
+    API->>Validator: Validate grounding
+    alt Grounding issues found
+        Validator-->>API: Return issues
+        API->>LLM: Request correction
+        LLM-->>API: Return revised answer
+        API->>Validator: Validate again
     end
-    API->>DB: Persist message + chunk IDs
-    API-->>User: Validated response + sources
+    API->>DB: Persist response and sources
+    API-->>User: Return response and sources
 ```
 
 ---
