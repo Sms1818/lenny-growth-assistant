@@ -680,7 +680,7 @@ lenny-growth-assistant/
 
 ---
 
-## Assignment Requirement Mapping
+<!-- ## Assignment Requirement Mapping
 
 | Requirement | Implementation |
 |---|---|
@@ -713,4 +713,4 @@ lenny-growth-assistant/
 | `.env.example` with safe defaults | `backend/.env.example`, `frontend/.env.example` — no secrets committed |
 | Structured logging | `backend/app/core/logger.py` — JSON events to stdout |
 | Graceful failure handling | 503/502/504/422 with structured codes for all known failure modes |
-| Alembic migrations | Three migration files; `alembic upgrade head` runs at container startup |
+| Alembic migrations | Three migration files; `alembic upgrade head` runs at container startup | -->
