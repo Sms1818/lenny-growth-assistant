@@ -2,6 +2,10 @@
 
 A grounded conversational assistant that answers product and growth questions using Lenny's Podcast and Newsletter as its knowledge base. The system retrieves relevant source material, generates answers, and validates them against those sources before returning a response. It also generates Markdown and HTML artifacts—including Ship 30 for 30-style essays—from the same grounded knowledge.
 
+> **Status: MVP.** Built as a working proof of concept, not a finished product.
+
+> **Demo walkthrough:** https://www.loom.com/share/75ccefd82a4c4c60bf3cda657c8b2ec3
+
 ---
 
 ## Features
